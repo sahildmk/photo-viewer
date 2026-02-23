@@ -1,0 +1,25 @@
+{
+  "name": "Dimillian/Skills",
+  "version": "0ce51f2e0db5f240a3067a37bbfb86dae6f45bb7",
+  "summary": "Auto-generated tile from GitHub (11 skills)",
+  "private": true,
+  "skills": {
+    "swiftui-performance-audit": {
+      "path": "swiftui-performance-audit/SKILL.md"
+    }
+  },
+  "excludes": {
+    "skills": [
+      "app-store-changelog",
+      "gh-issue-fix-flow",
+      "github",
+      "ios-debugger-agent",
+      "macos-spm-app-packaging",
+      "react-component-performance",
+      "swift-concurrency-expert",
+      "swiftui-liquid-glass",
+      "swiftui-ui-patterns",
+      "swiftui-view-refactor"
+    ]
+  }
+}

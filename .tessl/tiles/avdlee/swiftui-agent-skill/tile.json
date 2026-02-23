@@ -1,0 +1,11 @@
+{
+  "name": "avdlee/swiftui-agent-skill",
+  "version": "0f7d497e1f458476df5e27644f3e0e79470b855a",
+  "summary": "Auto-generated tile from GitHub (1 skill)",
+  "private": true,
+  "skills": {
+    "swiftui-expert-skill": {
+      "path": "swiftui-expert-skill/SKILL.md"
+    }
+  }
+}
