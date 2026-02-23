@@ -58,22 +58,18 @@ final class AppState {
     }
 
     func toggleSelection(for id: UUID) {
-        if selectedIDs.contains(id) {
-            selectedIDs.remove(id)
-        } else {
+        if selectedIDs.remove(id) == nil {
             selectedIDs.insert(id)
         }
     }
 
     func toggleGroupSelection(groupIndex: Int) {
         guard groupIndex < dateGroups.count else { return }
-        let group = dateGroups[groupIndex]
-        let groupIDs = images[group.range].map(\.id)
-        let allSelected = groupIDs.allSatisfy { selectedIDs.contains($0) }
-        if allSelected {
-            for id in groupIDs { selectedIDs.remove(id) }
+        let groupIDs = Set(images[dateGroups[groupIndex].range].map(\.id))
+        if groupIDs.isSubset(of: selectedIDs) {
+            selectedIDs.subtract(groupIDs)
         } else {
-            for id in groupIDs { selectedIDs.insert(id) }
+            selectedIDs.formUnion(groupIDs)
         }
     }
 
@@ -108,7 +104,7 @@ final class AppState {
     func enterSingleView() {
         guard let idx = focusedIndex, idx < images.count else { return }
         viewMode = .single(index: idx)
-        restartPreload(centerIndex: idx, maxConcurrent: 1)
+        restartPreload(centerIndex: idx)
     }
 
     func exitSingleView() {
@@ -123,11 +119,11 @@ final class AppState {
         if case .single(let idx) = viewMode {
             let newIdx = min(max(idx + offset, 0), images.count - 1)
             viewMode = .single(index: newIdx)
-            restartPreload(centerIndex: newIdx, maxConcurrent: 1, debounce: true)
+            restartPreload(centerIndex: newIdx, debounce: true)
         }
     }
 
-    func restartPreload(centerIndex: Int, maxConcurrent: Int? = nil, debounce: Bool = false) {
+    func restartPreload(centerIndex: Int, debounce: Bool = false) {
         debounceTask?.cancel()
         debounceTask = nil
 
@@ -139,26 +135,21 @@ final class AppState {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self?.launchPreload(urls: urls, centerIndex: centerIndex, maxConcurrent: maxConcurrent)
+                    self?.launchPreload(urls: urls, centerIndex: centerIndex)
                 }
             }
         } else {
-            launchPreload(urls: urls, centerIndex: centerIndex, maxConcurrent: maxConcurrent)
+            launchPreload(urls: urls, centerIndex: centerIndex)
         }
     }
 
     // MARK: - Private
 
-    private func launchPreload(urls: [URL], centerIndex: Int, maxConcurrent: Int?) {
+    private func launchPreload(urls: [URL], centerIndex: Int) {
         preloadTask?.cancel()
         let center = min(max(centerIndex, 0), urls.count - 1)
-        let concurrency = maxConcurrent
         preloadTask = Task.detached(priority: .utility) {
-            await ThumbnailGenerator.preloadAll(
-                urls: urls,
-                centerIndex: center,
-                maxConcurrent: concurrency
-            )
+            await ThumbnailGenerator.preloadAll(urls: urls, centerIndex: center)
         }
     }
 

@@ -26,7 +26,6 @@ struct SinglePhotoView: View {
 
             selectionBadge
             fileNameOverlay
-            navigationHints
         }
         .task(id: index) {
             fullImage = nil
@@ -62,48 +61,34 @@ struct SinglePhotoView: View {
     @ViewBuilder
     private var selectionBadge: some View {
         if appState.selectedIDs.contains(currentItem.id) {
-            VStack {
-                HStack {
-                    Spacer()
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.white, .blue)
-                        .padding()
-                }
-                Spacer()
-            }
+            Image(systemName: "checkmark.circle.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.white, .blue)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
 
     private var fileNameOverlay: some View {
-        VStack {
+        HStack {
+            Text(currentItem.fileName)
+                .foregroundStyle(.white)
+                .font(.callout)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+
             Spacer()
-            HStack {
-                Text(currentItem.fileName)
-                    .foregroundStyle(.white)
-                    .font(.callout)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
 
-                Spacer()
-
-                Text("\(index + 1) / \(appState.images.count)")
-                    .foregroundStyle(.white.opacity(0.7))
-                    .font(.callout)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-            }
-            .padding()
+            Text("\(index + 1) / \(appState.images.count)")
+                .foregroundStyle(.white.opacity(0.7))
+                .font(.callout)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
         }
-    }
-
-    private var navigationHints: some View {
-        VStack {
-            Spacer()
-            Spacer()
-        }
+        .padding()
+        .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
     private func prefetchAdjacent() {

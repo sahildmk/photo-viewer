@@ -117,8 +117,7 @@ enum ThumbnailGenerator {
     /// URLs are processed in proximity order radiating from `centerIndex`.
     static func preloadAll(
         urls: [URL],
-        centerIndex: Int = 0,
-        maxConcurrent: Int? = nil
+        centerIndex: Int = 0
     ) async {
         let ordered = proximityOrder(from: centerIndex, count: urls.count)
         for idx in ordered {
