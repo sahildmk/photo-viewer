@@ -12,6 +12,7 @@ final class AppState {
     var columnCount: Int = 4
     var isLoading = false
     private var preloadTask: Task<Void, Never>?
+    private var debounceTask: Task<Void, Never>?
 
     enum ViewMode: Equatable {
         case grid
@@ -39,12 +40,7 @@ final class AppState {
 
         isLoading = false
 
-        // Preload all thumbnails in background at low priority.
-        // Visible cells load first via their own .task; this fills in the rest.
-        let urls = images.map(\.url)
-        preloadTask = Task.detached(priority: .utility) {
-            await ThumbnailGenerator.preloadAll(urls: urls)
-        }
+        restartPreload(centerIndex: 0)
     }
 
     func toggleSelection(for id: UUID) {
@@ -73,16 +69,22 @@ final class AppState {
         @unknown default:
             break
         }
+
+        if let focusedIndex {
+            restartPreload(centerIndex: focusedIndex, debounce: true)
+        }
     }
 
     func enterSingleView() {
         guard let idx = focusedIndex, idx < images.count else { return }
         viewMode = .single(index: idx)
+        restartPreload(centerIndex: idx, maxConcurrent: 1)
     }
 
     func exitSingleView() {
         if case .single(let idx) = viewMode {
             focusedIndex = idx
+            restartPreload(centerIndex: idx)
         }
         viewMode = .grid
     }
@@ -91,6 +93,40 @@ final class AppState {
         if case .single(let idx) = viewMode {
             let newIdx = min(max(idx + offset, 0), images.count - 1)
             viewMode = .single(index: newIdx)
+            restartPreload(centerIndex: newIdx, maxConcurrent: 1, debounce: true)
+        }
+    }
+
+    func restartPreload(centerIndex: Int, maxConcurrent: Int? = nil, debounce: Bool = false) {
+        debounceTask?.cancel()
+        debounceTask = nil
+
+        let urls = images.map(\.url)
+        guard !urls.isEmpty else { return }
+
+        if debounce {
+            debounceTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.launchPreload(urls: urls, centerIndex: centerIndex, maxConcurrent: maxConcurrent)
+                }
+            }
+        } else {
+            launchPreload(urls: urls, centerIndex: centerIndex, maxConcurrent: maxConcurrent)
+        }
+    }
+
+    private func launchPreload(urls: [URL], centerIndex: Int, maxConcurrent: Int?) {
+        preloadTask?.cancel()
+        let center = min(max(centerIndex, 0), urls.count - 1)
+        let concurrency = maxConcurrent
+        preloadTask = Task.detached(priority: .utility) {
+            await ThumbnailGenerator.preloadAll(
+                urls: urls,
+                centerIndex: center,
+                maxConcurrent: concurrency
+            )
         }
     }
 

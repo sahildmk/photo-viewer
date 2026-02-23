@@ -27,6 +27,7 @@ struct ToolbarView: ToolbarContent {
                 Text("\(appState.images.count) photos \u{2022} \(appState.selectedIDs.count) selected")
                     .foregroundStyle(.secondary)
                     .font(.callout)
+                    .padding(.horizontal, 8)
             }
         }
     }

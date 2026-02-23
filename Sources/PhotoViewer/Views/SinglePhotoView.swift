@@ -31,13 +31,13 @@ struct SinglePhotoView: View {
         .task(id: index) {
             fullImage = nil
             fullImage = await ImageLoader.shared.loadFullSize(url: currentItem.url)
+            guard !Task.isCancelled else { return }
+            appState.restartPreload(centerIndex: index)
             prefetchAdjacent()
         }
         .onAppear {
             isFocused = true
-            Task { await ThumbnailSemaphore.shared.pause() }
         }
-        .onDisappear { Task { await ThumbnailSemaphore.shared.resume() } }
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()

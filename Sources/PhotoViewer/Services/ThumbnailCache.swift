@@ -35,40 +35,12 @@ actor ThumbnailSemaphore {
     private let limit: Int
     private var running: Int = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var paused = false
-    private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(limit: Int) {
         self.limit = limit
     }
 
-    /// Block new acquisitions so full-size image loads get priority.
-    func pause() {
-        paused = true
-    }
-
-    /// Allow thumbnail generation to resume.
-    func resume() {
-        paused = false
-        let waiting = pauseWaiters
-        pauseWaiters = []
-        for cont in waiting {
-            cont.resume()
-        }
-    }
-
     func acquire() async {
-        // While paused, hold off new thumbnail work
-        while paused {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                if paused {
-                    pauseWaiters.append(cont)
-                } else {
-                    cont.resume()
-                }
-            }
-        }
-
         if running < limit {
             running += 1
             return
@@ -123,20 +95,42 @@ enum ThumbnailGenerator {
         return image
     }
 
+    /// Indices radiating outward from `center`: [c, c-1, c+1, c-2, c+2, ...]
+    static func proximityOrder(from center: Int, count: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        var result = [Int]()
+        result.reserveCapacity(count)
+        result.append(center)
+        for offset in 1..<count {
+            let before = center - offset
+            let after = center + offset
+            if before >= 0 { result.append(before) }
+            if after < count { result.append(after) }
+            if result.count == count { break }
+        }
+        return result
+    }
+
     /// Generate all thumbnails in the background, in parallel.
     /// Skips any that are already cached (e.g. loaded by visible cells).
-    static func preloadAll(urls: [URL]) async {
-        let maxConcurrent = max(4, ProcessInfo.processInfo.activeProcessorCount)
+    /// URLs are processed in proximity order radiating from `centerIndex`.
+    static func preloadAll(
+        urls: [URL],
+        centerIndex: Int = 0,
+        maxConcurrent: Int? = nil
+    ) async {
+        let concurrency = maxConcurrent ?? max(4, ProcessInfo.processInfo.activeProcessorCount)
+        let ordered = proximityOrder(from: centerIndex, count: urls.count)
 
         await withTaskGroup(of: Void.self) { group in
             var running = 0
-            for url in urls {
-                // Limit concurrent decodings
-                if running >= maxConcurrent {
+            for idx in ordered {
+                if running >= concurrency {
                     await group.next()
                     running -= 1
                 }
                 guard !Task.isCancelled else { return }
+                let url = urls[idx]
                 if await ThumbnailCache.shared.get(url) != nil { continue }
 
                 group.addTask {
