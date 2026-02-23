@@ -11,6 +11,10 @@ final class AppState {
     var viewMode: ViewMode = .grid
     var columnCount: Int = 4
     var isLoading = false
+    var loadingProgress: Double = 0
+    var loadingTotal: Int = 0
+    var dateGroups: [DateGroup] = []
+    private var groupMembership: [(groupIndex: Int, localIndex: Int)] = []
     private var preloadTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
 
@@ -23,19 +27,29 @@ final class AppState {
         preloadTask?.cancel()
         folderURL = url
         isLoading = true
+        loadingProgress = 0
+        loadingTotal = 0
         selectedIDs.removeAll()
         focusedIndex = nil
         viewMode = .grid
 
         do {
-            images = try await FolderScanner.scan(folder: url)
+            images = try await FolderScanner.scan(folder: url) { [weak self] processed, total in
+                Task { @MainActor [weak self] in
+                    self?.loadingTotal = total
+                    self?.loadingProgress = Double(processed) / Double(max(total, 1))
+                }
+            }
             rebuildIndex()
+            rebuildDateGroups()
             if !images.isEmpty {
                 focusedIndex = 0
             }
         } catch {
             images = []
             indexByID = [:]
+            dateGroups = []
+            groupMembership = []
         }
 
         isLoading = false
@@ -51,6 +65,24 @@ final class AppState {
         }
     }
 
+    func toggleGroupSelection(groupIndex: Int) {
+        guard groupIndex < dateGroups.count else { return }
+        let group = dateGroups[groupIndex]
+        let groupIDs = images[group.range].map(\.id)
+        let allSelected = groupIDs.allSatisfy { selectedIDs.contains($0) }
+        if allSelected {
+            for id in groupIDs { selectedIDs.remove(id) }
+        } else {
+            for id in groupIDs { selectedIDs.insert(id) }
+        }
+    }
+
+    func isGroupFullySelected(_ groupIndex: Int) -> Bool {
+        guard groupIndex < dateGroups.count else { return false }
+        let group = dateGroups[groupIndex]
+        return images[group.range].allSatisfy { selectedIDs.contains($0.id) }
+    }
+
     func moveFocus(_ direction: MoveCommandDirection) {
         guard !images.isEmpty else { return }
         let current = focusedIndex ?? 0
@@ -61,11 +93,9 @@ final class AppState {
         case .right:
             focusedIndex = min(images.count - 1, current + 1)
         case .up:
-            let target = current - columnCount
-            if target >= 0 { focusedIndex = target }
+            focusedIndex = navigateVertical(from: current, direction: -1)
         case .down:
-            let target = current + columnCount
-            if target < images.count { focusedIndex = target }
+            focusedIndex = navigateVertical(from: current, direction: 1)
         @unknown default:
             break
         }
@@ -117,6 +147,8 @@ final class AppState {
         }
     }
 
+    // MARK: - Private
+
     private func launchPreload(urls: [URL], centerIndex: Int, maxConcurrent: Int?) {
         preloadTask?.cancel()
         let center = min(max(centerIndex, 0), urls.count - 1)
@@ -132,5 +164,82 @@ final class AppState {
 
     private func rebuildIndex() {
         indexByID = Dictionary(uniqueKeysWithValues: images.enumerated().map { ($1.id, $0) })
+    }
+
+    private func rebuildDateGroups() {
+        let calendar = Calendar.current
+        var groups: [DateGroup] = []
+        var membership: [(groupIndex: Int, localIndex: Int)] = []
+
+        var i = 0
+        while i < images.count {
+            let dayComponents = calendar.dateComponents([.year, .month, .day], from: images[i].captureDate)
+            let start = i
+            while i < images.count
+                && calendar.dateComponents([.year, .month, .day], from: images[i].captureDate) == dayComponents
+            {
+                i += 1
+            }
+            let groupIndex = groups.count
+            groups.append(DateGroup(
+                id: dayComponents,
+                date: images[start].captureDate,
+                range: start..<i
+            ))
+            for local in 0..<(i - start) {
+                membership.append((groupIndex: groupIndex, localIndex: local))
+            }
+        }
+
+        dateGroups = groups
+        groupMembership = membership
+    }
+
+    private func navigateVertical(from index: Int, direction: Int) -> Int {
+        guard !groupMembership.isEmpty else { return index }
+        let (gIdx, localIdx) = groupMembership[index]
+        let group = dateGroups[gIdx]
+        let groupSize = group.range.count
+        let col = localIdx % columnCount
+        let row = localIdx / columnCount
+        let totalRows = (groupSize + columnCount - 1) / columnCount
+
+        if direction < 0 {
+            // Moving up
+            if row > 0 {
+                // Stay within same section
+                let newLocal = (row - 1) * columnCount + col
+                return group.range.lowerBound + newLocal
+            }
+            // Cross to previous section
+            if gIdx > 0 {
+                let prevGroup = dateGroups[gIdx - 1]
+                let prevSize = prevGroup.range.count
+                let prevTotalRows = (prevSize + columnCount - 1) / columnCount
+                let lastRowStart = (prevTotalRows - 1) * columnCount
+                let targetLocal = min(lastRowStart + col, prevSize - 1)
+                return prevGroup.range.lowerBound + targetLocal
+            }
+            return index
+        } else {
+            // Moving down
+            if row < totalRows - 1 {
+                // Stay within same section
+                let newLocal = (row + 1) * columnCount + col
+                if newLocal < groupSize {
+                    return group.range.lowerBound + newLocal
+                }
+                // Last row is shorter — clamp to last item in section
+                return group.range.upperBound - 1
+            }
+            // Cross to next section
+            if gIdx < dateGroups.count - 1 {
+                let nextGroup = dateGroups[gIdx + 1]
+                let nextSize = nextGroup.range.count
+                let targetLocal = min(col, nextSize - 1)
+                return nextGroup.range.lowerBound + targetLocal
+            }
+            return index
+        }
     }
 }

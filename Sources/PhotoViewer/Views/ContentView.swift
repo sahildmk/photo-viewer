@@ -18,8 +18,28 @@ struct ContentView: View {
             ToolbarView()
         }
         .overlay {
-            if appState.images.isEmpty && !appState.isLoading {
+            if appState.isLoading {
+                loadingView
+            } else if appState.images.isEmpty {
                 emptyState
+            }
+        }
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            if appState.loadingTotal > 0 {
+                ProgressView(value: appState.loadingProgress) {
+                    Text("Reading photo metadata\u{2026}")
+                        .font(.headline)
+                } currentValueLabel: {
+                    Text("\(Int(appState.loadingProgress * Double(appState.loadingTotal))) of \(appState.loadingTotal) photos")
+                        .foregroundStyle(.secondary)
+                }
+                .progressViewStyle(.linear)
+                .frame(width: 260)
+            } else {
+                ProgressView("Scanning folder\u{2026}")
             }
         }
     }

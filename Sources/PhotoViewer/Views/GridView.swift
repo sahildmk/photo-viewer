@@ -18,22 +18,37 @@ struct GridView: View {
                             repeating: GridItem(.fixed(thumbnailSize), spacing: spacing),
                             count: columns
                         ),
-                        spacing: spacing
+                        spacing: spacing,
+                        pinnedViews: [.sectionHeaders]
                     ) {
-                        ForEach(appState.images) { item in
-                            let index = appState.indexByID[item.id]!
-                            GridItemView(
-                                item: item,
-                                isFocused: appState.focusedIndex == index,
-                                isSelected: appState.selectedIDs.contains(item.id)
-                            )
-                            .id(item.id)
-                            .onTapGesture(count: 2) {
-                                appState.focusedIndex = index
-                                appState.enterSingleView()
-                            }
-                            .onTapGesture {
-                                appState.focusedIndex = index
+                        ForEach(Array(appState.dateGroups.enumerated()), id: \.element.id) { groupIndex, group in
+                            Section {
+                                ForEach(appState.images[group.range]) { item in
+                                    let index = appState.indexByID[item.id]!
+                                    GridItemView(
+                                        item: item,
+                                        isFocused: appState.focusedIndex == index,
+                                        isSelected: appState.selectedIDs.contains(item.id)
+                                    )
+                                    .id(item.id)
+                                    .onTapGesture(count: 2) {
+                                        appState.focusedIndex = index
+                                        appState.enterSingleView()
+                                    }
+                                    .onTapGesture {
+                                        appState.focusedIndex = index
+                                    }
+                                }
+                            } header: {
+                                DateHeaderView(
+                                    group: group,
+                                    groupIndex: groupIndex,
+                                    photoCount: group.range.count,
+                                    allSelected: appState.isGroupFullySelected(groupIndex),
+                                    onToggle: {
+                                        appState.toggleGroupSelection(groupIndex: groupIndex)
+                                    }
+                                )
                             }
                         }
                     }
