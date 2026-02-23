@@ -5,6 +5,7 @@ struct SinglePhotoView: View {
     let index: Int
 
     @State private var fullImage: NSImage?
+    @FocusState private var isFocused: Bool
 
     private var currentItem: ImageItem {
         appState.images[index]
@@ -32,7 +33,13 @@ struct SinglePhotoView: View {
             fullImage = await ImageLoader.shared.loadFullSize(url: currentItem.url)
             prefetchAdjacent()
         }
+        .onAppear {
+            isFocused = true
+            Task { await ThumbnailSemaphore.shared.pause() }
+        }
+        .onDisappear { Task { await ThumbnailSemaphore.shared.resume() } }
         .focusable()
+        .focused($isFocused)
         .focusEffectDisabled()
         .onKeyPress(.escape) {
             appState.exitSingleView()

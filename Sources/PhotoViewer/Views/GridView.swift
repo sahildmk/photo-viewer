@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GridView: View {
     @Environment(AppState.self) private var appState
+    @FocusState private var isFocused: Bool
 
     private let thumbnailSize: CGFloat = 160
     private let spacing: CGFloat = 4
@@ -54,7 +55,13 @@ struct GridView: View {
             }
         }
         .focusable()
+        .focused($isFocused)
         .focusEffectDisabled()
+        .onChange(of: appState.viewMode) { _, newValue in
+            if newValue == .grid {
+                isFocused = true
+            }
+        }
         .onMoveCommand { direction in
             appState.moveFocus(direction)
         }

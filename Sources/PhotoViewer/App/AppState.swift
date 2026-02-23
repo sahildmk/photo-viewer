@@ -11,6 +11,7 @@ final class AppState {
     var viewMode: ViewMode = .grid
     var columnCount: Int = 4
     var isLoading = false
+    private var preloadTask: Task<Void, Never>?
 
     enum ViewMode: Equatable {
         case grid
@@ -18,6 +19,7 @@ final class AppState {
     }
 
     func loadFolder(_ url: URL) async {
+        preloadTask?.cancel()
         folderURL = url
         isLoading = true
         selectedIDs.removeAll()
@@ -36,6 +38,13 @@ final class AppState {
         }
 
         isLoading = false
+
+        // Preload all thumbnails in background at low priority.
+        // Visible cells load first via their own .task; this fills in the rest.
+        let urls = images.map(\.url)
+        preloadTask = Task.detached(priority: .utility) {
+            await ThumbnailGenerator.preloadAll(urls: urls)
+        }
     }
 
     func toggleSelection(for id: UUID) {

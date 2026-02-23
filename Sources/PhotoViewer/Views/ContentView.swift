@@ -4,11 +4,12 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        Group {
-            switch appState.viewMode {
-            case .grid:
-                GridView()
-            case .single(let index):
+        ZStack {
+            GridView()
+                .opacity(appState.viewMode == .grid ? 1 : 0)
+                .allowsHitTesting(appState.viewMode == .grid)
+
+            if case .single(let index) = appState.viewMode {
                 SinglePhotoView(index: index)
             }
         }

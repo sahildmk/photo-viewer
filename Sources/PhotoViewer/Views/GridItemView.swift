@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct GridItemView: View {
+struct GridItemView: View, Equatable {
     let item: ImageItem
     let isFocused: Bool
     let isSelected: Bool
@@ -8,6 +8,12 @@ struct GridItemView: View {
     @State private var thumbnail: NSImage?
 
     private let size: CGFloat = 160
+
+    static func == (lhs: GridItemView, rhs: GridItemView) -> Bool {
+        lhs.item.id == rhs.item.id
+            && lhs.isFocused == rhs.isFocused
+            && lhs.isSelected == rhs.isSelected
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {

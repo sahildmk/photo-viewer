@@ -5,18 +5,22 @@ import ImageIO
 actor ThumbnailCache {
     static let shared = ThumbnailCache()
 
-    private var cache: [URL: NSImage] = [:]
+    private let cache: NSCache<NSURL, NSImage> = {
+        let c = NSCache<NSURL, NSImage>()
+        c.countLimit = 500
+        return c
+    }()
 
     func get(_ url: URL) -> NSImage? {
-        cache[url]
+        cache.object(forKey: url as NSURL)
     }
 
     func set(_ url: URL, image: NSImage) {
-        cache[url] = image
+        cache.setObject(image, forKey: url as NSURL)
     }
 
     func clearCache() {
-        cache.removeAll()
+        cache.removeAllObjects()
     }
 }
 
@@ -31,12 +35,40 @@ actor ThumbnailSemaphore {
     private let limit: Int
     private var running: Int = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var paused = false
+    private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(limit: Int) {
         self.limit = limit
     }
 
+    /// Block new acquisitions so full-size image loads get priority.
+    func pause() {
+        paused = true
+    }
+
+    /// Allow thumbnail generation to resume.
+    func resume() {
+        paused = false
+        let waiting = pauseWaiters
+        pauseWaiters = []
+        for cont in waiting {
+            cont.resume()
+        }
+    }
+
     func acquire() async {
+        // While paused, hold off new thumbnail work
+        while paused {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                if paused {
+                    pauseWaiters.append(cont)
+                } else {
+                    cont.resume()
+                }
+            }
+        }
+
         if running < limit {
             running += 1
             return
@@ -89,6 +121,34 @@ enum ThumbnailGenerator {
             await ThumbnailCache.shared.set(url, image: image)
         }
         return image
+    }
+
+    /// Generate all thumbnails in the background, in parallel.
+    /// Skips any that are already cached (e.g. loaded by visible cells).
+    static func preloadAll(urls: [URL]) async {
+        let maxConcurrent = max(4, ProcessInfo.processInfo.activeProcessorCount)
+
+        await withTaskGroup(of: Void.self) { group in
+            var running = 0
+            for url in urls {
+                // Limit concurrent decodings
+                if running >= maxConcurrent {
+                    await group.next()
+                    running -= 1
+                }
+                guard !Task.isCancelled else { return }
+                if await ThumbnailCache.shared.get(url) != nil { continue }
+
+                group.addTask {
+                    let image = generateThumbnail(url: url)
+                    guard !Task.isCancelled else { return }
+                    if let image {
+                        await ThumbnailCache.shared.set(url, image: image)
+                    }
+                }
+                running += 1
+            }
+        }
     }
 
     private static func generateThumbnail(url: URL) -> NSImage? {
