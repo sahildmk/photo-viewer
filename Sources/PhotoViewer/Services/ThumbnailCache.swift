@@ -111,7 +111,8 @@ enum ThumbnailGenerator {
         return result
     }
 
-    /// Generate all thumbnails in the background, in parallel.
+    /// Generate all thumbnails in the background, sequentially.
+    /// Sequential reads are optimal for SD cards / slow I/O (no contention).
     /// Skips any that are already cached (e.g. loaded by visible cells).
     /// URLs are processed in proximity order radiating from `centerIndex`.
     static func preloadAll(
@@ -119,30 +120,47 @@ enum ThumbnailGenerator {
         centerIndex: Int = 0,
         maxConcurrent: Int? = nil
     ) async {
-        let concurrency = maxConcurrent ?? max(4, ProcessInfo.processInfo.activeProcessorCount)
         let ordered = proximityOrder(from: centerIndex, count: urls.count)
-
-        await withTaskGroup(of: Void.self) { group in
-            var running = 0
-            for idx in ordered {
-                if running >= concurrency {
-                    await group.next()
-                    running -= 1
-                }
-                guard !Task.isCancelled else { return }
-                let url = urls[idx]
-                if await ThumbnailCache.shared.get(url) != nil { continue }
-
-                group.addTask {
-                    let image = generateThumbnail(url: url)
-                    guard !Task.isCancelled else { return }
-                    if let image {
-                        await ThumbnailCache.shared.set(url, image: image)
-                    }
-                }
-                running += 1
+        for idx in ordered {
+            guard !Task.isCancelled else { return }
+            let url = urls[idx]
+            if await ThumbnailCache.shared.get(url) != nil { continue }
+            let image = readAndDecode(url: url)
+            guard !Task.isCancelled else { return }
+            if let image {
+                await ThumbnailCache.shared.set(url, image: image)
             }
         }
+    }
+
+    /// Sequential read with header-first fast path for embedded EXIF thumbnails.
+    /// 256KB covers embedded thumbnails in camera JPEGs/RAW without reading the full file.
+    private static func readAndDecode(url: URL) -> NSImage? {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? fh.close() }
+        // Fast path: 256KB covers embedded EXIF thumbnails in camera JPEGs/RAW
+        let header = fh.readData(ofLength: 256 * 1024)
+        if let image = decodeThumbnail(from: header) {
+            return image
+        }
+        // Slow path: full file for PNGs, screenshots, no embedded thumbnail
+        let rest = fh.readDataToEndOfFile()
+        return decodeThumbnail(from: header + rest)
+    }
+
+    /// Data-based thumbnail decode using IfAbsent to prefer embedded thumbnails.
+    private static func decodeThumbnail(from data: Data) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: thumbnailSize,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 
     private static func generateThumbnail(url: URL) -> NSImage? {
@@ -150,7 +168,7 @@ enum ThumbnailGenerator {
             return nil
         }
         let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: thumbnailSize,
             kCGImageSourceShouldCacheImmediately: true,
